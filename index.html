@@ -1,0 +1,574 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { Check, X } from 'lucide-react';
+
+const App = () => {
+  const [activeTab, setActiveTab] = useState('insertion');
+  const [selectedCase, setSelectedCase] = useState('practice');
+  const [focusedId, setFocusedId] = useState(null); 
+  const [startTime, setStartTime] = useState(null); // 紀錄開始操作的時間點
+
+  // 定義三種 Case 的原始資料
+  const casesData = {
+    practice: [9, 7, 2, 5, 4],
+    best: [2, 4, 5, 7, 9],
+    worst: [9, 7, 5, 4, 2]
+  };
+
+  const originalData = casesData[selectedCase];
+
+  // 自動生成演算法的正確步驟 (解決方案)
+  const getSolutions = (data) => {
+    const d = [...data];
+    
+    // --- 插入排序方案 ---
+    const insertion = [];
+    let insArr = [...d];
+    for (let i = 1; i < 5; i++) {
+      let key = insArr[i];
+      let j = i - 1;
+      while (j >= 0 && insArr[j] > key) {
+        insArr[j + 1] = insArr[j];
+        j = j - 1;
+      }
+      insArr[j + 1] = key;
+      insertion.push([...insArr]);
+    }
+
+    // --- 選擇排序方案 ---
+    const selection = [];
+    let selArr = [...d];
+    for (let i = 0; i < 4; i++) {
+      let minIdx = i;
+      for (let j = i + 1; j < 5; j++) {
+        if (selArr[j] < selArr[minIdx]) minIdx = j;
+      }
+      [selArr[i], selArr[minIdx]] = [selArr[minIdx], selArr[i]];
+      selection.push([...selArr]);
+    }
+
+    // --- 氣泡排序方案 ---
+    const bubble = [[], [], [], []];
+    let bubArr = [...d];
+    for (let r = 0; r < 4; r++) {
+      for (let s = 0; s < (4 - r); s++) {
+        const idx1 = 4 - s;
+        const idx2 = 3 - s;
+        if (bubArr[idx1] < bubArr[idx2]) {
+          [bubArr[idx1], bubArr[idx2]] = [bubArr[idx2], bubArr[idx1]];
+        }
+        bubble[r].push([...bubArr]);
+      }
+    }
+
+    return { insertion, selection, bubble };
+  };
+
+  const [solutions, setSolutions] = useState(getSolutions(originalData));
+
+  // 獲取初始化的練習區狀態
+  const getInitialAnswers = () => ({
+    insertion: Array(4).fill(0).map(() => Array(5).fill('')),
+    selection: Array(4).fill(0).map(() => Array(5).fill('')),
+    bubble: [
+      Array(4).fill(0).map(() => Array(5).fill('')),
+      Array(3).fill(0).map(() => Array(5).fill('')),
+      Array(2).fill(0).map(() => Array(5).fill('')),
+      Array(1).fill(0).map(() => Array(5).fill('')),
+    ]
+  });
+
+  const [userAnswers, setUserAnswers] = useState(getInitialAnswers());
+  const [results, setResults] = useState({ insertion: [], selection: [], bubble: [[], [], [], []] });
+
+  // 統計功能狀態：新增 time 欄位
+  const [stats, setStats] = useState({
+    insertion: { drag: 0, check: 0, time: 0 },
+    selection: { drag: 0, check: 0, time: 0 },
+    bubble: { drag: 0, check: 0, time: 0 }
+  });
+
+  // 當資料情況(Case)切換或分頁切換時重置狀態
+  useEffect(() => {
+    const newData = casesData[selectedCase];
+    setSolutions(getSolutions(newData));
+    setUserAnswers(getInitialAnswers());
+    setResults({ insertion: [], selection: [], bubble: [[], [], [], []] });
+    setStats(prev => ({
+      ...prev,
+      [activeTab]: { drag: 0, check: 0, time: 0 }
+    }));
+    setStartTime(null);
+    setFocusedId(null);
+  }, [selectedCase, activeTab]);
+
+  // 全域監聽點擊空白處解除輸入模式
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (!e.target.closest('.sort-box')) setFocusedId(null);
+    };
+    window.addEventListener('mousedown', handleClickOutside);
+    return () => window.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const isAllFilled = () => {
+    if (activeTab === 'bubble') {
+      return userAnswers.bubble.every(round => round.every(step => step.every(val => val !== '')));
+    }
+    return userAnswers[activeTab].every(round => round.every(val => val !== ''));
+  };
+
+  const getBoxStyle = (tab, rIdx, cIdx) => {
+    if (tab === 'selection') return cIdx <= rIdx ? 'sorted' : 'unsorted';
+    if (tab === 'insertion') return cIdx <= rIdx + 1 ? 'sorted' : 'unsorted';
+    if (tab === 'bubble') return cIdx <= rIdx ? 'sorted' : 'unsorted';
+    return 'unsorted';
+  };
+
+  const handleInputChange = (rIdx, cIdx, val, sIdx = null) => {
+    // 只要有任何修改，若尚未計時則開始計時
+    if (startTime === null) {
+      setStartTime(Date.now());
+    }
+
+    const cleanVal = val.replace(/[^0-9]/g, '').slice(-1);
+    const currentVal = (activeTab === 'bubble') 
+      ? userAnswers.bubble[rIdx][sIdx][cIdx] 
+      : userAnswers[activeTab][rIdx][cIdx];
+
+    if (cleanVal !== currentVal) {
+      setStats(prev => ({
+        ...prev,
+        [activeTab]: { ...prev[activeTab], drag: prev[activeTab].drag + 1 }
+      }));
+    }
+
+    const updated = { ...userAnswers };
+    
+    if (activeTab === 'bubble') {
+      updated.bubble[rIdx][sIdx][cIdx] = cleanVal;
+      const currentRoundSteps = updated.bubble[rIdx];
+      const lastStepIdxOfRound = currentRoundSteps.length - 1;
+
+      // 同輪同步
+      if (cIdx > 3 - sIdx) {
+        for (let nextS = sIdx + 1; nextS <= lastStepIdxOfRound; nextS++) {
+          updated.bubble[rIdx][nextS][cIdx] = cleanVal;
+        }
+      }
+
+      // 跨輪同步 (僅向下複製)
+      const isSortedPosition = getBoxStyle('bubble', rIdx, cIdx) === 'sorted';
+      if (sIdx === lastStepIdxOfRound && isSortedPosition) {
+        for (let targetRIdx = rIdx + 1; targetRIdx < updated.bubble.length; targetRIdx++) {
+          updated.bubble[targetRIdx].forEach((step, targetSIdx) => {
+            if (getBoxStyle('bubble', targetRIdx, cIdx) === 'sorted') {
+              updated.bubble[targetRIdx][targetSIdx][cIdx] = cleanVal;
+            }
+          });
+        }
+      }
+    } else {
+      updated[activeTab][rIdx][cIdx] = cleanVal;
+      if (activeTab === 'selection') {
+        const isSorted = getBoxStyle(activeTab, rIdx, cIdx) === 'sorted';
+        if (isSorted) {
+          for (let i = rIdx + 1; i < 4; i++) {
+            if (getBoxStyle(activeTab, i, cIdx) === 'sorted') updated[activeTab][i][cIdx] = cleanVal;
+          }
+        }
+      }
+    }
+    setUserAnswers(updated);
+  };
+
+  const handleKeyDown = (e, rIdx, cIdx, sIdx = null) => {
+    let target = null;
+    const prefix = activeTab === 'bubble' ? `input-${rIdx}-${sIdx}-` : `input-${rIdx}-`;
+    
+    if (e.key === 'ArrowRight') target = document.getElementById(`${prefix}${cIdx + 1}`);
+    else if (e.key === 'ArrowLeft') target = document.getElementById(`${prefix}${cIdx - 1}`);
+    else if (e.key === 'ArrowUp') {
+      if (activeTab === 'bubble') {
+        if (sIdx > 0) target = document.getElementById(`input-${rIdx}-${sIdx - 1}-${cIdx}`);
+        else if (rIdx > 0) {
+          const prevRoundLastStep = userAnswers.bubble[rIdx-1].length - 1;
+          target = document.getElementById(`input-${rIdx - 1}-${prevRoundLastStep}-${cIdx}`);
+        }
+      } else target = document.getElementById(`input-${rIdx - 1}-${cIdx}`);
+    } else if (e.key === 'ArrowDown') {
+      if (activeTab === 'bubble') {
+        if (sIdx < userAnswers.bubble[rIdx].length - 1) target = document.getElementById(`input-${rIdx}-${sIdx + 1}-${cIdx}`);
+        else if (rIdx < 3) target = document.getElementById(`input-${rIdx + 1}-0-${cIdx}`);
+      } else target = document.getElementById(`input-${rIdx + 1}-${cIdx}`);
+    }
+
+    if (target) {
+      e.preventDefault();
+      setFocusedId(target.id.replace('input-', ''));
+      target.focus();
+    }
+  };
+
+  const onDragStart = (e, value, id) => {
+    if (focusedId === id || !value) { e.preventDefault(); return; }
+    e.dataTransfer.setData("text/plain", value);
+    const img = new Image();
+    img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+  };
+
+  const onDrop = (e, rIdx, cIdx, sIdx = null) => {
+    e.preventDefault();
+    const data = e.dataTransfer.getData("text/plain");
+    if (data) handleInputChange(rIdx, cIdx, data, sIdx);
+  };
+
+  const checkAnswers = () => {
+    if (!isAllFilled()) return;
+    
+    // 增加檢查次數
+    let newCheckCount = stats[activeTab].check + 1;
+    let newResults;
+    let allCorrect = false;
+
+    if (activeTab === 'bubble') {
+      newResults = userAnswers.bubble.map((round, rIdx) => 
+        round.map((step, sIdx) => 
+          step.every((val, cIdx) => parseInt(val) === solutions.bubble[rIdx][sIdx][cIdx])
+        )
+      );
+      allCorrect = newResults.every(r => r.every(s => s === true));
+    } else {
+      newResults = userAnswers[activeTab].map((round, rIdx) => 
+        round.every((val, cIdx) => parseInt(val) === solutions[activeTab][rIdx][cIdx])
+      );
+      allCorrect = newResults.every(r => r === true);
+    }
+
+    setResults(prev => ({ ...prev, [activeTab]: newResults }));
+
+    // 如果全對，結算時間
+    if (allCorrect && startTime !== null) {
+      const timeSpent = Math.floor((Date.now() - startTime) / 1000);
+      setStats(prev => ({
+        ...prev,
+        [activeTab]: { ...prev[activeTab], check: newCheckCount, time: timeSpent }
+      }));
+    } else {
+      setStats(prev => ({
+        ...prev,
+        [activeTab]: { ...prev[activeTab], check: newCheckCount }
+      }));
+    }
+  };
+
+  const getTheme = () => {
+    switch (activeTab) {
+      case 'selection': return { 
+        primary: 'bg-[#E3FFE7]', secondary: 'bg-[#C6F6D5]', text: 'text-[#22543D]', border: 'border-[#9AE6B4]', 
+        highlight: 'bg-[#B2F5EA]', highlightBorder: 'border-[#48BB78]', tab: 'bg-[#48BB78]'
+      };
+      case 'bubble': return { 
+        primary: 'bg-[#EAE6FF]', secondary: 'bg-[#DDD6FE]', text: 'text-[#4C1D95]', border: 'border-[#A78BFA]', 
+        highlight: 'bg-[#DDD6FE]', highlightBorder: 'border-[#8B5CF6]', tab: 'bg-[#8B5CF6]'
+      };
+      default: return { 
+        primary: 'bg-[#FFDEE9]', secondary: 'bg-[#FED7E2]', text: 'text-[#702459]', border: 'border-[#FBB6CE]', 
+        highlight: 'bg-[#FED7E2]', highlightBorder: 'border-[#ED64A6]', tab: 'bg-[#ED64A6]'
+      };
+    }
+  };
+
+  const theme = getTheme();
+
+  return (
+    <div className={`min-h-screen p-4 transition-colors duration-700 ${theme.primary} flex items-center justify-center font-['M_PLUS_Rounded_1c'] select-none`}>
+      <style>
+        {`@import url('https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@500;700;900&display=swap');
+          body { font-family: 'M PLUS Rounded 1c', sans-serif; -webkit-touch-callout: none; }
+          .animate-shake { animation: shake 0.5s; }
+          @keyframes shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-5px); } 75% { transform: translateX(5px); } }
+          .cursor-grab { cursor: grab; }
+          .cursor-grab:active { cursor: grabbing; }
+          .cursor-text { cursor: text; }
+          .custom-scrollbar::-webkit-scrollbar { width: 8px; }
+          .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+          .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.1); border-radius: 10px; }
+        `}
+      </style>
+
+      <div className="w-full max-w-5xl bg-white/90 backdrop-blur-md shadow-[0_20px_50px_rgba(0,0,0,0.1)] rounded-[60px] p-8 border-[12px] border-white max-h-[92vh] overflow-y-auto custom-scrollbar relative">
+        <h1 className={`text-4xl font-[900] text-center mb-8 ${theme.text} tracking-wider drop-shadow-sm`}>🍭 排序演算法小學堂</h1>
+
+        {/* 分頁按鈕 */}
+        <div className="flex justify-center gap-5 mb-8">
+          {['insertion', 'selection', 'bubble'].map(tab => (
+            <button
+              key={tab}
+              onClick={() => { setActiveTab(tab); setFocusedId(null); }}
+              className={`px-10 py-3.5 rounded-full font-black transition-all transform hover:scale-105 active:translate-y-1 
+                ${activeTab === tab 
+                  ? `${theme.tab} text-white shadow-xl border-2 border-transparent` 
+                  : `bg-white/40 text-gray-400 border-2 border-gray-200 hover:bg-white hover:border-gray-300 shadow-sm`
+                }`}
+            >
+              {tab === 'insertion' ? '插入排序' : tab === 'selection' ? '選擇排序' : '氣泡排序'}
+            </button>
+          ))}
+        </div>
+
+        {/* 三向 Case 切換開關 */}
+        <div className="flex justify-center mb-10">
+          <div className="bg-gray-100 p-1.5 rounded-[24px] flex gap-1 shadow-inner">
+            {[
+              { id: 'practice', label: 'Practice Case', color: 'bg-amber-400' },
+              { id: 'best', label: 'Best Case', color: 'bg-emerald-400' },
+              { id: 'worst', label: 'Worst Case', color: 'bg-rose-400' }
+            ].map(c => (
+              <button
+                key={c.id}
+                onClick={() => setSelectedCase(c.id)}
+                className={`px-6 py-2 rounded-[18px] text-xs font-black transition-all transform
+                  ${selectedCase === c.id 
+                    ? `${c.color} text-white shadow-md scale-105` 
+                    : 'text-gray-400 hover:text-gray-600 hover:bg-white'}`}
+              >
+                {c.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="space-y-6 px-4">
+          {/* 原始資料列 */}
+          <div className="flex items-center gap-6 sort-box">
+            <div className={`w-40 py-3 rounded-2xl border-2 ${theme.border} ${theme.secondary} ${theme.text} font-black text-center text-sm shadow-sm`}>
+              原始資料
+            </div>
+            <div className="flex gap-4">
+              {originalData.map((num, idx) => {
+                const isInsertionHead = activeTab === 'insertion' && idx === 0;
+                const isBubbleTarget = activeTab === 'bubble' && idx === 4;
+                return (
+                  <div
+                    key={idx}
+                    draggable="true"
+                    onDragStart={(e) => onDragStart(e, num.toString(), `orig-${idx}`)}
+                    className={`w-14 h-14 flex items-center justify-center rounded-2xl text-2xl font-black transition-all cursor-grab active:cursor-grabbing hover:scale-110 border-4
+                      ${isBubbleTarget ? 'border-red-500 bg-white shadow-lg z-10' : ''}
+                      ${isInsertionHead ? `${theme.highlight} ${theme.highlightBorder} ${theme.text} shadow-sm` : isBubbleTarget ? '' : 'bg-gray-100 border-gray-200 text-gray-400'}`}
+                  >
+                    {num}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="h-px bg-gradient-to-r from-transparent via-gray-200 to-transparent w-full my-4" />
+
+          {/* 練習區內容 */}
+          {activeTab === 'bubble' ? (
+            <div className="space-y-4">
+              {userAnswers.bubble.map((roundSteps, rIdx) => (
+                <React.Fragment key={rIdx}>
+                  {roundSteps.map((stepArr, sIdx) => {
+                    const lastStepIdx = roundSteps.length - 1;
+                    return (
+                      <div key={sIdx} className="flex items-center gap-6">
+                        <div className={`w-40 py-3 rounded-2xl border-2 ${theme.border} ${theme.secondary} ${theme.text} font-black text-center text-sm shadow-sm`}>
+                          第 {rIdx + 1} 輪 第 {sIdx + 1} 回
+                        </div>
+                        <div className="flex gap-4 relative">
+                          {stepArr.map((currentVal, cIdx) => {
+                            const id = `${rIdx}-${sIdx}-${cIdx}`;
+                            const isFocused = focusedId === id;
+                            const bubblePos = (sIdx === lastStepIdx) ? 4 : (3 - sIdx);
+                            const isBubble = cIdx === bubblePos;
+                            const isSorted = cIdx < rIdx || (sIdx === lastStepIdx && cIdx === rIdx);
+
+                            return (
+                              <div 
+                                key={cIdx}
+                                draggable={!isFocused && currentVal !== ''}
+                                onDragStart={(e) => onDragStart(e, currentVal, id)}
+                                onDragOver={(e) => e.preventDefault()}
+                                onDrop={(e) => onDrop(e, rIdx, cIdx, sIdx)}
+                                onClick={() => setFocusedId(id)}
+                                className={`w-14 h-14 flex items-center justify-center rounded-2xl border-4 transition-all shadow-md sort-box
+                                  ${isFocused ? 'ring-4 ring-blue-300 z-10 scale-110 shadow-xl' : ''}
+                                  ${!isFocused ? 'cursor-grab active:cursor-grabbing hover:brightness-105' : 'cursor-default'}
+                                  ${isBubble ? 'border-red-500 bg-white scale-110 z-20 shadow-lg' : isSorted ? `${theme.highlight} ${theme.highlightBorder} shadow-none` : 'bg-gray-100 border-gray-200'}`}
+                              >
+                                <input
+                                  id={`input-${id}`}
+                                  type="text"
+                                  inputMode="numeric"
+                                  autoComplete="off"
+                                  value={currentVal}
+                                  onKeyDown={(e) => handleKeyDown(e, rIdx, cIdx, sIdx)}
+                                  onChange={(e) => handleInputChange(rIdx, cIdx, e.target.value, sIdx)}
+                                  className={`w-full h-full bg-transparent text-center text-2xl font-black focus:outline-none 
+                                    ${isFocused ? 'cursor-text' : 'cursor-grab pointer-events-none'} 
+                                    ${isSorted ? theme.text : 'text-gray-500'}`}
+                                />
+                              </div>
+                            );
+                          })}
+                          {results.bubble[rIdx][sIdx] !== undefined && (
+                            <div className="absolute -right-14 top-1/2 -translate-y-1/2">
+                              {results.bubble[rIdx][sIdx] ? (
+                                <div className="bg-green-500 text-white p-1.5 rounded-full shadow-lg border-2 border-white"><Check size={20} strokeWidth={4} /></div>
+                              ) : (
+                                <div className="bg-red-500 text-white p-1.5 rounded-full shadow-lg border-2 border-white animate-shake"><X size={20} strokeWidth={4} /></div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {rIdx < userAnswers.bubble.length - 1 && (
+                    <div className="py-2">
+                      <div className="h-px w-full border-t border-dashed border-violet-200 opacity-30" />
+                    </div>
+                  )}
+                </React.Fragment>
+              ))}
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {userAnswers[activeTab].map((round, rIdx) => (
+                <div key={rIdx} className="flex items-center gap-6">
+                  <div className={`w-40 py-3 rounded-2xl border-2 ${theme.border} ${theme.secondary} ${theme.text} font-black text-center text-sm shadow-sm`}>
+                    第 {rIdx + 1} 輪結果
+                  </div>
+                  <div className="flex gap-4 relative">
+                    {round.map((currentVal, cIdx) => {
+                      const id = `${rIdx}-${cIdx}`;
+                      const isSorted = getBoxStyle(activeTab, rIdx, cIdx) === 'sorted';
+                      const isFocused = focusedId === id;
+                      return (
+                        <div 
+                          key={cIdx}
+                          draggable={!isFocused && currentVal !== ''}
+                          onDragStart={(e) => onDragStart(e, currentVal, id)}
+                          onDragOver={(e) => e.preventDefault()}
+                          onDrop={(e) => onDrop(e, rIdx, cIdx)}
+                          onClick={() => setFocusedId(id)}
+                          className={`w-14 h-14 flex items-center justify-center rounded-2xl border-4 transition-all shadow-md sort-box
+                            ${isFocused ? 'ring-4 ring-blue-300 scale-110 z-10 shadow-xl' : ''}
+                            ${!isFocused ? 'cursor-grab active:cursor-grabbing hover:brightness-105' : 'cursor-default'}
+                            ${isSorted ? `${theme.highlight} ${theme.highlightBorder} shadow-none` : 'bg-gray-100 border-gray-200'}`}
+                        >
+                          <input
+                            id={`input-${id}`}
+                            type="text"
+                            inputMode="numeric"
+                            value={currentVal}
+                            onKeyDown={(e) => handleKeyDown(e, rIdx, cIdx)}
+                            onChange={(e) => handleInputChange(rIdx, cIdx, e.target.value)}
+                            className={`w-full h-full bg-transparent text-center text-2xl font-black focus:outline-none 
+                              ${isFocused ? 'cursor-text' : 'cursor-grab pointer-events-none'} 
+                              ${isSorted ? theme.text : 'text-gray-500'}`}
+                          />
+                        </div>
+                      );
+                    })}
+                    {results[activeTab][rIdx] !== undefined && (
+                      <div className="absolute -right-16 top-1/2 -translate-y-1/2">
+                        {results[activeTab][rIdx] ? (
+                          <div className="bg-green-500 text-white p-2 rounded-full shadow-lg border-2 border-white"><Check size={24} strokeWidth={4} /></div>
+                        ) : (
+                          <div className="bg-red-500 text-white p-2 rounded-full shadow-lg border-2 border-white animate-shake"><X size={24} strokeWidth={4} /></div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* 按鈕區 (在統計之上) */}
+          <div className="mt-12 flex flex-col items-center gap-6">
+            <div className="flex justify-center gap-8 w-full">
+              <button
+                onClick={() => {
+                  setUserAnswers(getInitialAnswers());
+                  setResults({ insertion: [], selection: [], bubble: [[], [], [], []] });
+                  setStats(prev => ({ ...prev, [activeTab]: { drag: 0, check: 0, time: 0 } }));
+                  setStartTime(null);
+                  setFocusedId(null);
+                }}
+                className={`px-10 py-4 rounded-3xl border-2 ${theme.border} ${theme.secondary} ${theme.text} font-black hover:brightness-105 transition-all active:scale-95 shadow-sm sort-box`}
+              >
+                清空重填
+              </button>
+              <button
+                onClick={checkAnswers}
+                disabled={!isAllFilled()}
+                className={`px-12 py-4 rounded-3xl font-[900] text-2xl shadow-2xl transition-all transform sort-box
+                  ${isAllFilled() 
+                    ? `${theme.highlight} ${theme.highlightBorder} ${theme.text} border-4 hover:scale-105 active:translate-y-1` 
+                    : 'bg-gray-200 text-gray-400 cursor-not-allowed opacity-50 shadow-none'}`}
+              >
+                {isAllFilled() ? '檢查答案 🎯' : '請填完所有格子'}
+              </button>
+            </div>
+          </div>
+
+          {/* 分隔線與操作統計區 */}
+          <div className="pt-6">
+            <div className="h-px bg-gray-200 w-full mb-8" />
+            
+            <div className="flex flex-row items-center gap-8 flex-wrap">
+              {/* 操作統計標題 */}
+              <div className={`text-xl font-[900] ${theme.text} tracking-widest flex items-center gap-2 whitespace-nowrap`}>
+                <span className="w-1.5 h-6 bg-red-400 rounded-full" /> 操作統計
+              </div>
+
+              {/* 橫向並列的統計看板 */}
+              <div className="flex flex-row gap-4 flex-wrap">
+                {/* 拖曳次數 */}
+                <div className={`h-12 flex items-center gap-4 px-4 rounded-2xl border-2 border-red-400 bg-red-50 shadow-sm`}>
+                  <span className="text-red-700 font-black text-base tracking-wider whitespace-nowrap leading-none">拖曳次數</span>
+                  <div className="flex items-center gap-1.5 leading-none">
+                    <span className="text-2xl font-black text-red-500">{stats[activeTab].drag}</span>
+                    <span className="text-red-700 font-black text-base">次</span>
+                  </div>
+                </div>
+
+                {/* 檢查次數 */}
+                <div className={`h-12 flex items-center gap-4 px-4 rounded-2xl border-2 border-orange-400 bg-orange-50 shadow-sm`}>
+                  <span className="text-orange-700 font-black text-base tracking-wider whitespace-nowrap leading-none">檢查次數</span>
+                  <div className="flex items-center gap-1.5 leading-none">
+                    <span className="text-2xl font-black text-orange-500">{stats[activeTab].check}</span>
+                    <span className="text-orange-700 font-black text-base">次</span>
+                  </div>
+                </div>
+
+                {/* 花費時間 (新增) */}
+                <div className={`h-12 flex items-center gap-4 px-4 rounded-2xl border-2 border-sky-400 bg-sky-50 shadow-sm`}>
+                  <span className="text-sky-700 font-black text-base tracking-wider whitespace-nowrap leading-none">花費時間</span>
+                  <div className="flex items-center gap-1.5 leading-none">
+                    <span className="text-2xl font-black text-sky-500">{stats[activeTab].time}</span>
+                    <span className="text-sky-700 font-black text-base">秒</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* 頁尾說明 */}
+        <div className="mt-12 text-center">
+          <div className="text-gray-400 text-[11px] font-[900] uppercase tracking-[0.25em] bg-white/30 px-6 py-2 rounded-full inline-block">
+             📊 切換不同 Case 觀察變化 • ↔️ 方向鍵可切換格子 • ✋ 抓取方框即可拖拉
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default App;
