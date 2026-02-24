@@ -4,14 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>🍭 排序演算法小學堂</title>
-    <!-- 引入 Tailwind CSS -->
+    <!-- 引入外部函式庫 -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- 引入 Google Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@500;700;900&display=swap" rel="stylesheet">
-    <!-- 引入 React 與 Babel -->
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- 提前載入截圖函式庫，確保按鈕點擊時已就緒 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <style>
         body {
             font-family: 'M PLUS Rounded 1c', sans-serif;
@@ -25,6 +25,8 @@
         .custom-scrollbar::-webkit-scrollbar { width: 8px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.1); border-radius: 10px; }
+        /* 確保截圖時不會出現輸入游標 */
+        .screenshot-mode input { caret-color: transparent; }
     </style>
 </head>
 <body>
@@ -33,7 +35,7 @@
     <script type="text/babel">
         const { useState, useEffect, useRef, Fragment } = React;
 
-        // 自定義圖示組件 (取代 Lucide 以避免載入問題)
+        // 自定義內嵌圖示組件
         const IconCheck = ({ size = 24 }) => (
             <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
         );
@@ -49,18 +51,8 @@
             const [selectedCase, setSelectedCase] = useState('practice');
             const [focusedId, setFocusedId] = useState(null); 
             const [startTime, setStartTime] = useState(null); 
+            const [isCapturing, setIsCapturing] = useState(false); // 截圖狀態控制
             const cardRef = useRef(null);
-
-            // 載入截圖函式庫
-            useEffect(() => {
-                const script = document.createElement('script');
-                script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
-                script.async = true;
-                document.body.appendChild(script);
-                return () => {
-                    if (document.body.contains(script)) document.body.removeChild(script);
-                };
-            }, []);
 
             const casesData = {
                 practice: [9, 7, 2, 5, 4],
@@ -262,22 +254,34 @@
                 }
             };
 
+            // 強化型截圖功能
             const handleScreenshot = () => {
-                if (!window.html2canvas || !cardRef.current) return;
+                if (!window.html2canvas || !cardRef.current) {
+                    console.error("html2canvas library not ready.");
+                    return;
+                }
+                
+                setIsCapturing(true);
                 setFocusedId(null);
+                
+                // 延遲執行確保狀態已更新
                 setTimeout(() => {
                     window.html2canvas(cardRef.current, {
-                        backgroundColor: null,
+                        backgroundColor: '#f8fafc', // 使用淺灰藍底色，防止透明背景
                         scale: 2,
-                        logging: false,
-                        useCORS: true
+                        useCORS: true,
+                        logging: false
                     }).then(canvas => {
                         const link = document.createElement('a');
-                        link.download = `排序練習結果_${selectedCase}_${activeTab}.png`;
+                        link.download = `排序演算法練習_${activeTab}_${selectedCase}.png`;
                         link.href = canvas.toDataURL('image/png');
                         link.click();
+                        setIsCapturing(false);
+                    }).catch(err => {
+                        console.error("Screenshot failed:", err);
+                        setIsCapturing(false);
                     });
-                }, 100);
+                }, 200);
             };
 
             const getTheme = () => {
@@ -291,7 +295,7 @@
             const theme = getTheme();
 
             return (
-                <div className={`min-h-screen p-4 transition-colors duration-700 ${theme.primary} flex items-start justify-center select-none`}>
+                <div className={`min-h-screen p-4 transition-colors duration-700 ${theme.primary} flex items-start justify-center select-none ${isCapturing ? 'screenshot-mode' : ''}`}>
                     <div ref={cardRef} className="w-full max-w-5xl bg-white/90 backdrop-blur-md shadow-[0_20px_50px_rgba(0,0,0,0.1)] rounded-[60px] p-10 border-[12px] border-white min-h-[92vh] overflow-y-auto custom-scrollbar relative">
                         <h1 className={`text-4xl font-[900] text-center mb-8 ${theme.text} tracking-wider drop-shadow-sm`}>🍭 排序演算法小學堂</h1>
 
@@ -331,6 +335,7 @@
                                             );
                                         })}
                                     </div>
+                                    {/* 隱形佔位以維持精確對齊 */}
                                     <div className="w-16 h-14 pointer-events-none" />
                                 </div>
                             </div>
@@ -393,7 +398,7 @@
                                                 </div>
                                                 {results[activeTab]?.[rIdx] !== undefined && (
                                                     <div className="absolute -right-16 top-1/2 -translate-y-1/2 flex justify-center items-center w-14 h-14">
-                                                        {results[activeTab][rIdx] ? <div className="bg-green-500 text-white p-2 rounded-full shadow-lg border-2 border-white"><IconCheck size={28} /></div> : <div className="bg-red-500 text-white p-2 rounded-full shadow-lg border-2 border-white animate-shake"><IconX size={28} /></div>}
+                                                        {results[activeTab][rIdx] ? <div className="bg-green-500 text-white p-2 rounded-full shadow-lg border-2 border-white"><IconCheck size={28} strokeWidth={4} /></div> : <div className="bg-red-500 text-white p-2 rounded-full shadow-lg border-2 border-white animate-shake"><IconX size={28} strokeWidth={4} /></div>}
                                                     </div>
                                                 )}
                                                 {results[activeTab]?.[rIdx] === undefined && <div className="w-16 h-14" />}
@@ -404,7 +409,9 @@
                             </div>
 
                             <div className="mt-8 flex justify-center gap-6 w-full">
-                                <button onClick={handleScreenshot} className={`px-8 py-4 rounded-3xl border-2 ${theme.border} bg-white ${theme.text} font-black hover:bg-gray-50 transition-all active:scale-95 shadow-sm sort-box flex items-center gap-2`}><IconCamera size={20} /> 截圖 📷</button>
+                                <button onClick={handleScreenshot} disabled={isCapturing} className={`px-8 py-4 rounded-3xl border-2 ${theme.border} bg-white ${theme.text} font-black hover:bg-gray-50 transition-all active:scale-95 shadow-sm sort-box flex items-center gap-2 ${isCapturing ? 'opacity-50 cursor-wait' : ''}`}>
+                                    <IconCamera size={20} /> {isCapturing ? '處理中...' : '截圖 📷'}
+                                </button>
                                 <button onClick={() => { setUserAnswers(getInitialAnswers()); setResults({ insertion: [], selection: [], bubble: [[], [], [], []] }); setStats(prev => ({ ...prev, [activeTab]: { drag: 0, check: 0, time: 0 } })); setStartTime(null); setFocusedId(null); }} className={`px-10 py-4 rounded-3xl border-2 ${theme.border} ${theme.secondary} ${theme.text} font-black hover:brightness-105 transition-all active:scale-95 shadow-sm sort-box`}>清空重填</button>
                                 <button onClick={checkAnswers} disabled={!isAllFilled()} className={`px-12 py-4 rounded-3xl font-[900] text-2xl shadow-2xl transition-all transform sort-box ${isAllFilled() ? `${theme.highlight} ${theme.highlightBorder} ${theme.text} border-4 hover:scale-105 active:translate-y-1` : 'bg-gray-200 text-gray-400 cursor-not-allowed opacity-50 shadow-none'}`}>{isAllFilled() ? '檢查答案 🎯' : '請填完所有格子'}</button>
                             </div>
