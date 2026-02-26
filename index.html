@@ -10,7 +10,6 @@
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <!-- 提前載入截圖函式庫，確保按鈕點擊時已就緒 -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <style>
         body {
@@ -25,8 +24,12 @@
         .custom-scrollbar::-webkit-scrollbar { width: 8px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.1); border-radius: 10px; }
-        /* 確保截圖時不會出現輸入游標 */
         .screenshot-mode input { caret-color: transparent; }
+        
+        /* 增加卡片翻轉的過渡感 */
+        .card-reveal {
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
     </style>
 </head>
 <body>
@@ -35,7 +38,6 @@
     <script type="text/babel">
         const { useState, useEffect, useRef, Fragment } = React;
 
-        // 自定義內嵌圖示組件
         const IconCheck = ({ size = 24 }) => (
             <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
         );
@@ -286,7 +288,6 @@
 
             const theme = getTheme();
 
-            // 狀態槽位組件：始終佔據空間，防止版面跳動
             const StatusSlot = ({ result }) => (
                 <div className="w-14 flex justify-center items-center h-14">
                     {result !== undefined && (
@@ -296,6 +297,45 @@
                     )}
                 </div>
             );
+
+            // 自定義方塊元件，處理翻牌邏輯
+            const SortBox = ({ value, id, isSorted, isBubbleBox, onDrop, rIdx, sIdx, cIdx }) => {
+                const isFocused = focusedId === id;
+                return (
+                    <div 
+                        className={`group relative w-14 h-14 flex items-center justify-center rounded-2xl transition-all shadow-md sort-box 
+                            ${isFocused ? 'ring-4 ring-blue-300 z-10 scale-110 shadow-xl' : ''}
+                            ${!isFocused ? 'cursor-grab active:cursor-grabbing hover:brightness-105' : 'cursor-default'}
+                            ${isBubbleBox ? 'border-red-500 bg-white scale-110 z-20 shadow-lg border-4' : isSorted ? `${theme.highlight} ${theme.highlightBorder} shadow-none border-4` : 'bg-gray-100 border-gray-200 border-4'}`}
+                        draggable={!isFocused && value !== ''}
+                        onDragStart={(e) => onDragStart(e, value, id)}
+                        onDragOver={(e) => e.preventDefault()}
+                        onDrop={(e) => onDrop(e, rIdx, cIdx, sIdx)}
+                        onClick={() => setFocusedId(id)}
+                    >
+                        {/* 遮蓋層 (卡片背面)：如果是 unsorted 且非 bubble 目標且未被點擊，則顯示遮蓋 */}
+                        {!isSorted && !isBubbleBox && !isCapturing && (
+                            <div className={`absolute inset-0 z-10 flex items-center justify-center bg-gray-200 rounded-xl text-gray-400 font-black text-xl transition-opacity duration-300 pointer-events-none ${isFocused ? 'opacity-0' : 'group-hover:opacity-0 opacity-100'}`}>
+                                ?
+                            </div>
+                        )}
+                        
+                        <input 
+                            id={`input-${id}`}
+                            type="text"
+                            inputMode="numeric"
+                            autoComplete="off"
+                            value={value}
+                            onKeyDown={(e) => handleKeyDown(e, rIdx, cIdx, sIdx)}
+                            onChange={(e) => handleInputChange(rIdx, cIdx, e.target.value, sIdx)}
+                            className={`w-full h-full bg-transparent text-center text-2xl font-black focus:outline-none card-reveal
+                                ${isFocused ? 'cursor-text' : 'cursor-grab pointer-events-none'} 
+                                ${isSorted ? theme.text : 'text-gray-500'}
+                                ${!isSorted && !isBubbleBox && !isFocused && !isCapturing ? 'opacity-0 group-hover:opacity-100' : 'opacity-100'}`}
+                        />
+                    </div>
+                );
+            };
 
             return (
                 <div className={`min-h-screen p-4 transition-colors duration-700 ${theme.primary} flex items-start justify-center select-none ${isCapturing ? 'screenshot-mode' : ''}`}>
@@ -326,19 +366,37 @@
                         </div>
 
                         <div className="flex flex-col items-center space-y-6">
-                            {/* 原始資料列：結構完全同步以保證置中對齊 */}
+                            {/* 原始資料列 */}
                             <div className="flex items-center justify-center w-full gap-6">
                                 <div className={`w-40 py-3 rounded-2xl border-2 ${theme.border} ${theme.secondary} ${theme.text} font-black text-center text-sm shadow-sm`}>原始資料</div>
                                 <div className="flex gap-4">
                                     {originalData.map((num, idx) => {
                                         const isInsertionHead = activeTab === 'insertion' && idx === 0;
                                         const isBubbleTarget = activeTab === 'bubble' && idx === 4;
+                                        const isSorted = isInsertionHead;
+                                        const isBubbleBox = isBubbleTarget;
                                         return (
-                                            <div key={idx} className={`w-14 h-14 flex items-center justify-center rounded-2xl text-2xl font-black transition-all cursor-grab active:cursor-grabbing hover:scale-110 border-4 ${isBubbleTarget ? 'border-red-500 bg-white shadow-lg z-10' : ''} ${isInsertionHead ? `${theme.highlight} ${theme.highlightBorder} ${theme.text} shadow-sm` : isBubbleTarget ? '' : 'bg-gray-100 border-gray-200 text-gray-400'}`} draggable="true" onDragStart={(e) => onDragStart(e, num.toString(), `orig-${idx}`)}>{num}</div>
+                                            <div 
+                                                key={idx} 
+                                                className={`group relative w-14 h-14 flex items-center justify-center rounded-2xl text-2xl font-black transition-all cursor-grab active:cursor-grabbing hover:scale-110 border-4 
+                                                    ${isBubbleBox ? 'border-red-500 bg-white shadow-lg z-10' : isSorted ? `${theme.highlight} ${theme.highlightBorder} ${theme.text} shadow-sm` : 'bg-gray-100 border-gray-200 text-gray-400'}`}
+                                                draggable="true" 
+                                                onDragStart={(e) => onDragStart(e, num.toString(), `orig-${idx}`)}
+                                            >
+                                                {/* 遮蓋層 */}
+                                                {!isSorted && !isBubbleBox && !isCapturing && (
+                                                    <div className="absolute inset-0 z-10 flex items-center justify-center bg-gray-200 rounded-xl text-gray-400 font-black text-xl opacity-100 group-hover:opacity-0 transition-opacity duration-300 pointer-events-none">
+                                                        ?
+                                                    </div>
+                                                )}
+                                                <span className={`card-reveal ${!isSorted && !isBubbleBox && !isCapturing ? 'opacity-0 group-hover:opacity-100' : 'opacity-100'}`}>
+                                                    {num}
+                                                </span>
+                                            </div>
                                         );
                                     })}
                                 </div>
-                                <div className="w-14" /> {/* 為對齊下方圖示預留的透明槽位 */}
+                                <div className="w-14" />
                             </div>
 
                             <div className="h-px bg-gradient-to-r from-transparent via-gray-200 to-transparent w-full my-2" />
@@ -347,27 +405,31 @@
                                 {activeTab === 'bubble' ? (
                                     userAnswers.bubble.map((roundSteps, rIdx) => (
                                         <Fragment key={rIdx}>
-                                            {roundSteps.map((stepArr, sIdx) => (
-                                                <div key={sIdx} className="flex items-center justify-center w-full gap-6">
-                                                    <div className={`w-40 py-3 rounded-2xl border-2 ${theme.border} ${theme.secondary} ${theme.text} font-black text-center text-sm shadow-sm`}>第 {rIdx + 1} 輪 第 {sIdx + 1} 回</div>
-                                                    <div className="flex gap-4">
-                                                        {stepArr.map((currentVal, cIdx) => {
-                                                            const id = `${rIdx}-${sIdx}-${cIdx}`;
-                                                            const isFocused = focusedId === id;
-                                                            const lastStepIdx = roundSteps.length - 1;
-                                                            const bubblePos = (sIdx === lastStepIdx) ? 4 : (3 - sIdx);
-                                                            const isBubble = cIdx === bubblePos;
-                                                            const isSorted = cIdx < rIdx || (sIdx === lastStepIdx && cIdx === rIdx);
-                                                            return (
-                                                                <div key={cIdx} className={`w-14 h-14 flex items-center justify-center rounded-2xl border-4 transition-all shadow-md sort-box ${isFocused ? 'ring-4 ring-blue-300 z-10 scale-110 shadow-xl' : ''} ${!isFocused ? 'cursor-grab active:cursor-grabbing hover:brightness-105' : 'cursor-default'} ${isBubble ? 'border-red-500 bg-white scale-110 z-20 shadow-lg' : isSorted ? `${theme.highlight} ${theme.highlightBorder} shadow-none` : 'bg-gray-100 border-gray-200'}`} draggable={!isFocused && currentVal !== ''} onDragStart={(e) => onDragStart(e, currentVal, id)} onDragOver={(e) => e.preventDefault()} onDrop={(e) => onDrop(e, rIdx, cIdx, sIdx)} onClick={() => setFocusedId(id)}>
-                                                                    <input id={`input-${id}`} type="text" inputMode="numeric" autoComplete="off" value={currentVal} onKeyDown={(e) => handleKeyDown(e, rIdx, cIdx, sIdx)} onChange={(e) => handleInputChange(rIdx, cIdx, e.target.value, sIdx)} className={`w-full h-full bg-transparent text-center text-2xl font-black focus:outline-none ${isFocused ? 'cursor-text' : 'cursor-grab pointer-events-none'} ${isSorted ? theme.text : 'text-gray-500'}`} />
-                                                                </div>
-                                                            );
-                                                        })}
+                                            {roundSteps.map((stepArr, sIdx) => {
+                                                const lastStepIdx = roundSteps.length - 1;
+                                                return (
+                                                    <div key={sIdx} className="flex items-center justify-center w-full gap-6">
+                                                        <div className={`w-40 py-3 rounded-2xl border-2 ${theme.border} ${theme.secondary} ${theme.text} font-black text-center text-sm shadow-sm`}>第 {rIdx + 1} 輪 第 {sIdx + 1} 回</div>
+                                                        <div className="flex gap-4">
+                                                            {stepArr.map((currentVal, cIdx) => {
+                                                                const bubblePos = (sIdx === lastStepIdx) ? 4 : (3 - sIdx);
+                                                                return (
+                                                                    <SortBox 
+                                                                        key={cIdx}
+                                                                        value={currentVal}
+                                                                        id={`${rIdx}-${sIdx}-${cIdx}`}
+                                                                        isSorted={cIdx < rIdx || (sIdx === lastStepIdx && cIdx === rIdx)}
+                                                                        isBubbleBox={cIdx === bubblePos}
+                                                                        onDrop={onDrop}
+                                                                        rIdx={rIdx} sIdx={sIdx} cIdx={cIdx}
+                                                                    />
+                                                                );
+                                                            })}
+                                                        </div>
+                                                        <StatusSlot result={results.bubble[rIdx]?.[sIdx]} />
                                                     </div>
-                                                    <StatusSlot result={results.bubble[rIdx]?.[sIdx]} />
-                                                </div>
-                                            ))}
+                                                );
+                                            })}
                                             {rIdx < userAnswers.bubble.length - 1 && <div className="py-2 flex justify-center"><div className="h-px w-3/4 border-t border-dashed border-violet-200 opacity-30" /></div>}
                                         </Fragment>
                                     ))
@@ -376,16 +438,17 @@
                                         <div key={rIdx} className="flex items-center justify-center w-full gap-6">
                                             <div className={`w-40 py-3 rounded-2xl border-2 ${theme.border} ${theme.secondary} ${theme.text} font-black text-center text-sm shadow-sm`}>第 {rIdx + 1} 輪結果</div>
                                             <div className="flex gap-4">
-                                                {round.map((currentVal, cIdx) => {
-                                                    const id = `${rIdx}-${cIdx}`;
-                                                    const isSorted = getBoxStyle(activeTab, rIdx, cIdx) === 'sorted';
-                                                    const isFocused = focusedId === id;
-                                                    return (
-                                                        <div key={cIdx} className={`w-14 h-14 flex items-center justify-center rounded-2xl border-4 transition-all shadow-md sort-box ${isFocused ? 'ring-4 ring-blue-300 scale-110 z-10 shadow-xl' : ''} ${!isFocused ? 'cursor-grab active:cursor-grabbing hover:brightness-105' : 'cursor-default'} ${isSorted ? `${theme.highlight} ${theme.highlightBorder} shadow-none` : 'bg-gray-100 border-gray-200'}`} draggable={!isFocused && currentVal !== ''} onDragStart={(e) => onDragStart(e, currentVal, id)} onDragOver={(e) => e.preventDefault()} onDrop={(e) => onDrop(e, rIdx, cIdx)} onClick={() => setFocusedId(id)}>
-                                                            <input id={`input-${id}`} type="text" inputMode="numeric" value={currentVal} onKeyDown={(e) => handleKeyDown(e, rIdx, cIdx)} onChange={(e) => handleInputChange(rIdx, cIdx, e.target.value)} className={`w-full h-full bg-transparent text-center text-2xl font-black focus:outline-none ${isFocused ? 'cursor-text' : 'cursor-grab pointer-events-none'} ${isSorted ? theme.text : 'text-gray-500'}`} />
-                                                        </div>
-                                                    );
-                                                })}
+                                                {round.map((currentVal, cIdx) => (
+                                                    <SortBox 
+                                                        key={cIdx}
+                                                        value={currentVal}
+                                                        id={`${rIdx}-${cIdx}`}
+                                                        isSorted={getBoxStyle(activeTab, rIdx, cIdx) === 'sorted'}
+                                                        isBubbleBox={false}
+                                                        onDrop={onDrop}
+                                                        rIdx={rIdx} cIdx={cIdx}
+                                                    />
+                                                ))}
                                             </div>
                                             <StatusSlot result={results[activeTab]?.[rIdx]} />
                                         </div>
@@ -413,7 +476,7 @@
                         </div>
 
                         <div className="mt-12 text-center">
-                            <div className="text-gray-400 text-[11px] font-[900] uppercase tracking-[0.25em] bg-white/30 px-6 py-2 rounded-full inline-block">📊 切換不同 Case 觀察變化 • ↔️ 方向鍵可切換格子 • ✋ 抓取方框即可拖拉</div>
+                            <div className="text-gray-400 text-[11px] font-[900] uppercase tracking-[0.25em] bg-white/30 px-6 py-2 rounded-full inline-block">📊 滑鼠滑過「?」可看數字 • ✋ 抓取方框即可拖拉</div>
                         </div>
                     </div>
                 </div>
